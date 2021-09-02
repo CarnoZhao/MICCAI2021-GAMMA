@@ -1,5 +1,6 @@
-gpus = "0,1"
+gpus = "3"
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 import warnings
 warnings.filterwarnings("ignore")
@@ -38,7 +39,7 @@ class Model(pl.LightningModule):
     class Data(Dataset):
         def __init__(self, df, trans, **args):
             self.df = df
-            self.trans = trans
+            self.trans = trans if not isinstance(trans, list) else trans[0]
             for k, v in args.items():
                 setattr(self, k, v)
         
@@ -65,13 +66,11 @@ class Model(pl.LightningModule):
         df_img["uid"] = df_img.img_file.apply(lambda x: int(os.path.basename(os.path.dirname(x))))
         df_oct = pd.DataFrame({"oct_file": oct_files})
         df_oct["uid"] = df_oct.oct_file.apply(lambda x: int(os.path.basename(os.path.dirname(x))))
-        df_oct = df_oct.iloc[::self.subsample_ratio]
-
         df = labels.merge(df_img, on = "uid", how = "outer").merge(df_oct, on = "uid", how = "outer")
         df = df.drop_duplicates(["img_file"]).reset_index(drop = True)
 
-        split = GroupKFold(5)
-        train_idx, valid_idx = list(split.split(df, groups = df.uid))[self.fold]
+        split = StratifiedKFold(5)
+        train_idx, valid_idx = list(split.split(df, df.label))[self.fold]
         self.df_train = df.loc[train_idx].reset_index(drop = True) if self.fold != -1 else df.reset_index(drop = True)
         self.df_valid = df.loc[valid_idx].reset_index(drop = True)
         self.ds_train = self.Data(self.df_train, self.trans_train, **self.args)
@@ -127,22 +126,23 @@ class Model(pl.LightningModule):
 args = dict(
     learning_rate = 1e-3,
     model_name = "tf_efficientnet_b0_ns",
-    num_epochs = 30,
+    num_epochs = 60,
     batch_size = 64,
-    fold = 4,
+    fold = 2,
     num_classes = 3,
-    smoothing = 0.,
+    smoothing = 0,
     alpha = 1,
-    image_size = 384,
+    image_size = 224,
     drop_rate = 0.5,
     swa = False,
     name = "IMG/b0ns",
-    version = "v7_fold4"
+    version = "v4_fold2"
 )
 args['trans_train'] = A.Compose([
     A.Resize(args['image_size'], args['image_size']),
     A.HorizontalFlip(),
     A.VerticalFlip(),
+    A.ColorJitter(),
     A.RandomRotate90(),
     A.ShiftScaleRotate(),
     A.GridDistortion(),
@@ -160,7 +160,8 @@ if __name__ == "__main__":
         filename = '{epoch}_{valid_metric:.3f}',
         save_last = True,
         mode = "max",
-        monitor = 'valid_metric'
+        monitor = 'valid_metric',
+        save_top_k = 30
     )
     model = Model(**args)
     trainer = pl.Trainer(
