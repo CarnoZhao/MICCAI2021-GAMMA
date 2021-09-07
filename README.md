@@ -28,6 +28,10 @@ cuda==10.2
 
 # How to run
 
+## NOTE: 
+
+**These are not the full codes for competition, but are some code templates for hyper-parameter tuning.**
+
 - `python Solver_IMG.py` for training with fundus images
 
 - `python Solver_OCT.py` for training with OCT images
